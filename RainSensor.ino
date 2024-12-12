@@ -630,10 +630,12 @@ void wifiBegin()
   WiFi.disconnect(); // Ensure no active connection during the scan
   delay(1000);
 
+#if 1
+  int maxSignal = -1000;
+
   // Search all routers that give this SSID signal
   // Determine the best signal
   int numNetworks = WiFi.scanNetworks(false, false, false, 0, 300, WIFISSID);
-  int maxSignal = -1000;
   for (int i = 0; i < numNetworks; i++) 
   {
     char buf[255];
@@ -667,6 +669,7 @@ void wifiBegin()
   if (maxSignal != -1000)
     WiFi.begin(WIFISSID, WIFIPASSWORD, 0, BSSID);
   else
+#endif
     WiFi.begin(WIFISSID, WIFIPASSWORD);
 
   printSerial("Connecting WiFi");
