@@ -40,6 +40,8 @@
 # define SERIALBT
 #endif
 
+//#define CONTROLBUILTIN LED_BUILTIN
+
 #define LOGGING
 
 #if defined LOGGING
@@ -373,6 +375,24 @@ void callback(char* topic, byte* payload, unsigned int length)
   printSerial("length: ");
   printSerialInt(length);
   printSerialln();
+}
+
+void SetupStatusLed()
+{
+#if defined CONTROLBUILTIN
+  pinMode(CONTROLBUILTIN, OUTPUT);
+  SetStatusLed(false);
+#endif  
+}
+
+void SetStatusLed(bool on)
+{
+#if defined CONTROLBUILTIN
+  if (on)
+    digitalWrite(CONTROLBUILTIN, HIGH);
+  else
+    digitalWrite(CONTROLBUILTIN, LOW);
+#endif
 }
 
 #if defined OTA
@@ -725,6 +745,8 @@ void setup()
 
   SetupReset();
 
+  SetupStatusLed();
+
 # if defined ESP32_DEVKIT_V1
     Serial.begin(115200);
 # else
@@ -832,6 +854,8 @@ void statusRain()
     printSerial("Status: ");
     printSerialInt(val);
     printSerialln();
+
+    SetStatusLed(val != 0);
 
     sprintf(buf2, MQTTid "/Rain");
     sprintf(buf1, val == 0 ? "No" : "Yes");
