@@ -104,6 +104,10 @@ mqtt:
       unique_id: "RainSensor"
       state_topic: "RainSensor/Rain"
 
+    - name: "RainSensorDryMinutes"
+      unique_id: "RainSensorDryMinutes"
+      state_topic: "RainSensor/DryMinutes"
+
     - name: "RainSensorIP"
       unique_id: "RainSensorIP"
       state_topic: "RainSensor/IP"
@@ -282,7 +286,7 @@ void reconnect()
     static unsigned long msWait = 0;
 
     // Loop until we're reconnected
-    if ((count == 0 || millis() - msWait > 5000) &&
+    if ((count == 0 || millis() - msWait > 5000 /* 5 sec */) &&
         (!mqttClient.connected()))
     {
         printSerial("Attempting MQTT connection (");
@@ -316,7 +320,7 @@ void reconnect()
         {
             printSerial("failed, rc=");
             printSerialInt(mqttClient.state());
-            if (count >= 10)
+            if (count >= 15 * 60 / 5) // 15 min = 15 * 60 sec = 900 sec = 900 sec / 5 sec = 180 times retry per 5 seconds = 15 minutes
             {
               printSerialln(" Unable to connect, reset");
               delay(500);
@@ -748,20 +752,20 @@ void setup()
   SetupStatusLed();
 
 # if defined ESP32_DEVKIT_V1
-    Serial.begin(115200);
+  Serial.begin(115200);
 # else
-    Serial.begin(9600);
+  Serial.begin(9600);
 # endif
 
 #if defined SERIALBT
-    SerialBT.begin(myName); //Bluetooth device name
+  SerialBT.begin(myName); //Bluetooth device name
 #endif
 
-    delay(100);
+  delay(100);
 
-    printSerialln("Setup");
+  printSerialln("Setup");
 
-    setupRainSensor();
+  setupRainSensor();
 
 #if defined WIFI
 
@@ -777,11 +781,11 @@ void setup()
 
 #else
 
-    // dht.begin();
-    printSerialln("Initialize Ethernet ...");
-    Ethernet.init(10); // ok
-    //Ethernet.init(5);
-    printSerialln("Initialize Ethernet done");
+  // dht.begin();
+  printSerialln("Initialize Ethernet ...");
+  Ethernet.init(10); // ok
+  //Ethernet.init(5);
+  printSerialln("Initialize Ethernet done");
 
 #if defined DHCP
   // start the Ethernet connection:
@@ -843,27 +847,50 @@ void setup()
 }
 
 uint16_t val0 = 0xffff;
+unsigned long lastDryTime = 0;
+unsigned long dryMinutes0 = ~0;
 
 void statusRain()
 {
   uint16_t val = digitalRead(rainSwitchPin) == 0;
   if (val != val0)
   {
-    char buf1[50], buf2[50];
-
     printSerial("Status: ");
     printSerialInt(val);
     printSerialln();
 
     SetStatusLed(val != 0);
 
-    sprintf(buf2, MQTTid "/Rain");
-    sprintf(buf1, val == 0 ? "No" : "Yes");
-
     if (mqttClient.connected())
-      mqttClient.publish(buf2, buf1, true);
+      mqttClient.publish(MQTTid "/Rain", val == 0 ? "No" : "Yes", true);
+
+    if (val != 0)
+      lastDryTime = 0; // raining
+    else if ((lastDryTime = millis()) == 0) // time raining stopped
+      lastDryTime = 1;
 
     val0 = val;
+  }
+
+  unsigned long dryMinutes;
+  if (lastDryTime == 0)
+  {
+    // raining
+    dryMinutes = 0; // 0 minutes dry
+  }
+  else
+  {
+    // dry
+    if ((dryMinutes = millis()) == 0)
+      dryMinutes = 1;
+    dryMinutes = (dryMinutes - lastDryTime) / 1000 / 60;
+  }
+  if (dryMinutes != dryMinutes0)
+  {
+    char buf[15];
+    sprintf(buf, "%d", dryMinutes);
+    mqttClient.publish(MQTTid "/DryMinutes", buf, true);
+    dryMinutes0 = dryMinutes;
   }
 }
 
