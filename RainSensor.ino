@@ -538,6 +538,7 @@ void setupOTA()
     "<table>"
     "<tr><td><a href='/log'><button>Log</button></a></td></tr>"
     "<tr><td><a href='/info'><button>Info</button></a></td></tr>"
+    "<tr><td><a href='/reset'><button>Reset</button></a></td></tr>"
     "<tr><td><a href='/upload'><button>Update firmware</button></a></td></tr>"
     "</table>"
     "</body></html>");
@@ -563,6 +564,17 @@ void setupOTA()
       return server.requestAuthentication();
     }
     info();
+  });
+
+ /*reset*/
+ server.on("/reset", HTTP_GET, []()
+ {
+    // See https://github.com/espressif/arduino-esp32/blob/master/libraries/WebServer/examples/HttpBasicAuth/HttpBasicAuth.ino
+    if (!server.authenticate(UPLOADUSER, UPLOADPASSWORD))
+    {
+      return server.requestAuthentication();
+    }
+    DoReset();
   });
 
   /*return upload page which is stored in uploadContent */
