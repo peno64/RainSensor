@@ -119,6 +119,11 @@ mqtt:
       unique_id: "RainSensorTime"
       state_topic: "RainSensor/UpTime"
 
+    - name: "RainSensorRSSI"
+      unique_id: "RainSensorRSSI"
+      state_topic: "RainSensor/RSSI"
+      unit_of_measurement: "dBm"
+
     - name: "RainSensorMessage"
       unique_id: "RainSensorMessage"
       state_topic: "RainSensor/Message"
@@ -988,7 +993,14 @@ void loop()
       //printSerial("Uptime: ");
       //printSerialln(buf);
       if (mqttClient.connected())
+      {
         mqttClient.publish(MQTTid "/UpTime", buf, true);
+
+        static int rssi_avg = -1000;
+        rssi_avg = rssi_avg == -1000 ? WiFi.RSSI() : (rssi_avg * 9 + WiFi.RSSI()) / 10;
+        sprintf(buf, "%d", rssi_avg);
+        mqttClient.publish(MQTTid "/RSSI", buf, true);
+      }
       else
       {
         printSerialln("MQTT not connected...");
