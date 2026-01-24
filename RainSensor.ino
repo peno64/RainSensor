@@ -413,6 +413,21 @@ void SetStatusLed(bool on)
 
 fs_WebServer server(80);
 
+void mainMenu()
+{
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/html",
+  "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body>"
+  "<h3>" myName "</h3>"
+  "<table>"
+  "<tr><td><a href='/log'><button>Log</button></a></td></tr>"
+  "<tr><td><a href='/info'><button>Info</button></a></td></tr>"
+  "<tr><td><a href='/reset'><button>Reset</button></a></td></tr>"
+  "<tr><td><a href='/upload'><button>Update firmware</button></a></td></tr>"
+  "</table>"
+  "</body></html>");
+}
+
 void logContent()
 {
   server.chunkedResponseModeStart(200, "text/html");
@@ -539,17 +554,7 @@ void setupOTA()
       return server.requestAuthentication();
     }
 
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/html",
-    "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body>"
-    "<h3>" myName "</h3>"
-    "<table>"
-    "<tr><td><a href='/log'><button>Log</button></a></td></tr>"
-    "<tr><td><a href='/info'><button>Info</button></a></td></tr>"
-    "<tr><td><a href='/reset'><button>Reset</button></a></td></tr>"
-    "<tr><td><a href='/upload'><button>Update firmware</button></a></td></tr>"
-    "</table>"
-    "</body></html>");
+    mainMenu();
   });
 
  /*logs*/
@@ -582,6 +587,8 @@ void setupOTA()
     {
       return server.requestAuthentication();
     }
+    mainMenu();
+    delay(1000);
     DoReset();
   });
 
