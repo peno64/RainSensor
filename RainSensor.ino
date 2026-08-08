@@ -49,10 +49,14 @@
 #define LOGGING
 
 #if defined LOGGING
+#undef LOGDATETIME
+#define LOGDATETIME
+
 #define maxNLogs 50
-#define maxLogSize 100
+#define maxLogSize 120
 int logsIndex = 0;
 int logOffset = 0;
+bool logDateTime = false;
 unsigned long logTimeStamps[maxNLogs];
 char logs[maxNLogs][maxLogSize];
 #endif
@@ -80,6 +84,9 @@ BluetoothSerial SerialBT;
 #if defined WIFI
 
 #include <WiFi.h>
+#if defined LOGGING && defined LOGDATETIME
+#include <time.h>
+#endif
 
 #if defined OTA
 
@@ -184,7 +191,31 @@ unsigned long Time2Seconds(unsigned int days, unsigned char hours, unsigned char
 void KeepMessage(char *data)
 {
   if (logOffset == 0)
-    logTimeStamps[logsIndex] = Time2Seconds(uptimeDays, uptimeHours, uptimeMinutes, uptimeSeconds);
+  {
+#if defined LOGDATETIME
+    static bool firstTime = true;
+    if (firstTime || logDateTime)
+    {
+      struct tm timeinfo;
+      if (getLocalTime(&timeinfo, firstTime ? 10000 : 10))
+      {
+        logDateTime = true;
+        logOffset += snprintf(logs[logsIndex], maxLogSize - 1, "%04d-%02d-%02dT%02d:%02d:%02d: ",
+                      timeinfo.tm_year + 1900,
+                      timeinfo.tm_mon + 1,
+                      timeinfo.tm_mday,
+                      timeinfo.tm_hour,
+                      timeinfo.tm_min,
+                      timeinfo.tm_sec);
+      }
+      else if (firstTime)
+        logDateTime = false;
+      firstTime = false;
+    }
+#endif
+    if (!logDateTime)
+      logTimeStamps[logsIndex] = Time2Seconds(uptimeDays, uptimeHours, uptimeMinutes, uptimeSeconds);
+  }
   logOffset += snprintf(logs[logsIndex] + logOffset, maxLogSize - logOffset - 1, "%s", data);
 }
 #endif
@@ -298,7 +329,7 @@ void message(char *msg)
     messageTime = 1;
 }
 
-void reconnect()
+void reconnectMQTT()
 {
     static int count = 0;
     static unsigned long msWait = 0;
@@ -458,15 +489,18 @@ void logContent()
       j = 0;
     if (logs[j][0])
     {
-      unsigned long seconds = secondsNow - logTimeStamps[j];
-      unsigned long minutes = seconds / 60;
-      seconds -= minutes * 60;
-      unsigned long hours = minutes / 60;
-      minutes -= hours * 60;
-      unsigned long days = hours / 24;
-      hours -= days * 24;
-      sprintf(buf, "-%u:%02d:%02d:%02d: ", (unsigned int)days, (int)hours, (int)minutes, (int)seconds);
-      server.sendContent(buf);
+      if (!logDateTime)
+      {
+        unsigned long seconds = secondsNow - logTimeStamps[j];
+        unsigned long minutes = seconds / 60;
+        seconds -= minutes * 60;
+        unsigned long hours = minutes / 60;
+        minutes -= hours * 60;
+        unsigned long days = hours / 24;
+        hours -= days * 24;
+        sprintf(buf, "-%u:%02d:%02d:%02d: ", (unsigned int)days, (int)hours, (int)minutes, (int)seconds);
+        server.sendContent(buf);
+      }
       server.sendContent(logs[j]);
       server.sendContent("<br>");
     }
@@ -710,6 +744,10 @@ void printWiFi(void (*callback)(char *))
   sprintf(buf, "SSID: %s", WiFi.SSID());
   callback(buf);
 
+  int channel = (int)WiFi.channel();
+  sprintf(buf, "Channel: %d", channel);
+  callback(buf);
+
   IPAddress ip = WiFi.localIP();
   sprintf(buf, "IP address: %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
   callback(buf);
@@ -752,9 +790,10 @@ void wifiBegin()
   {
     char buf[255];
 
-    sprintf(buf, "%d: SSID: %s, RRSI: %d dBm, BSSID: %02X:%02X:%02X:%02X:%02X:%02X",
+    sprintf(buf, "%d: SSID: %s, Channel: %d, RRSI: %d dBm, BSSID: %02X:%02X:%02X:%02X:%02X:%02X",
                   i + 1,
                   WiFi.SSID(i).c_str(),
+                  WiFi.channel(i),
                   WiFi.RSSI(i),
                   WiFi.BSSID(i)[0], WiFi.BSSID(i)[1], WiFi.BSSID(i)[2],
                   WiFi.BSSID(i)[3], WiFi.BSSID(i)[4], WiFi.BSSID(i)[5]);
@@ -797,6 +836,10 @@ void wifiBegin()
 
   printSerialln();
   printSerialln("WiFi connected");
+
+#if defined LOGGING && defined LOGDATETIME
+  configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
+#endif
 
   uint8_t* currentBSSID = WiFi.BSSID();
   for (int j = 0; j < 6; j++)        
@@ -965,9 +1008,8 @@ void statusRain()
   uint16_t val = digitalRead(rainSwitchPin) == 0;
   if (val != val0)
   {
-    printSerial("Status: ");
-    printSerialInt(val);
-    printSerialln();
+    printSerial("Status rain: ");
+    printSerialln((char *) (val == 0 ? "No" : "Yes"));
 
     SetStatusLed(val != 0);
 
@@ -1006,7 +1048,7 @@ void statusRain()
 
 void loop()
 {
-    reconnect();
+    reconnectMQTT();
     if (mqttClient.connected())
     {
       statusRain();
