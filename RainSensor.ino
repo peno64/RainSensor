@@ -57,6 +57,7 @@
 int logsIndex = 0;
 int logOffset = 0;
 bool logDateTime = false;
+bool timeConfiged = false;
 unsigned long logTimeStamps[maxNLogs];
 char logs[maxNLogs][maxLogSize];
 #endif
@@ -193,24 +194,27 @@ void KeepMessage(char *data)
   if (logOffset == 0)
   {
 #if defined LOGDATETIME
-    static bool firstTime = true;
-    if (firstTime || logDateTime)
+    if (timeConfiged)
     {
-      struct tm timeinfo;
-      if (getLocalTime(&timeinfo, firstTime ? 10000 : 10))
+      static bool firstTime = true;
+      if (firstTime || logDateTime)
       {
-        logDateTime = true;
-        logOffset += snprintf(logs[logsIndex], maxLogSize - 1, "%04d-%02d-%02dT%02d:%02d:%02d: ",
-                      timeinfo.tm_year + 1900,
-                      timeinfo.tm_mon + 1,
-                      timeinfo.tm_mday,
-                      timeinfo.tm_hour,
-                      timeinfo.tm_min,
-                      timeinfo.tm_sec);
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo, firstTime ? 10000 : 10))
+        {
+          logDateTime = true;
+          logOffset += snprintf(logs[logsIndex], maxLogSize - 1, "%04d-%02d-%02dT%02d:%02d:%02d: ",
+                        timeinfo.tm_year + 1900,
+                        timeinfo.tm_mon + 1,
+                        timeinfo.tm_mday,
+                        timeinfo.tm_hour,
+                        timeinfo.tm_min,
+                        timeinfo.tm_sec);
+        }
+        else if (firstTime)
+          logDateTime = false;
+        firstTime = false;
       }
-      else if (firstTime)
-        logDateTime = false;
-      firstTime = false;
     }
 #endif
     if (!logDateTime)
@@ -395,7 +399,7 @@ void callback(char* topic, byte* payload, unsigned int length)
   char str[2] = " ";
   bool print = true;
 
-  printSerial("Message arrived [");
+  printSerial("MQTT message arrived [");
   printSerial(topic);
   printSerial("] ");
   memset(buf, 'x', sizeof(buf) - 1);
@@ -839,6 +843,7 @@ void wifiBegin()
 
 #if defined LOGGING && defined LOGDATETIME
   configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
+  timeConfiged = true;
 #endif
 
   uint8_t* currentBSSID = WiFi.BSSID();
