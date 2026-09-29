@@ -34,6 +34,8 @@
 #define MQTTid "RainSensor" postfix
 #define MQTTcmd MQTTid "Cmd"
 
+#define MQTTEMPTY " " // " " must be used to make sure that MQTT retains it. "" clears MQTT messages with result that a restart of home assistant would give Unknown
+
 #define ReconnectWaitSeconds 5
 #define ReconnectRebootMinutes 30
 
@@ -319,7 +321,7 @@ void clearMessageWhenNeeded()
 {
   if (messageTime != 0 && (millis() - messageTime >= clearMessageTimeout))
   {
-    message("");
+    message(MQTTEMPTY);
     messageTime = 0;
   }
 }
