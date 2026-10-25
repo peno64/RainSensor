@@ -124,6 +124,8 @@ mqtt:
     - name: "RainSensorDryMinutes"
       unique_id: "RainSensorDryMinutes"
       state_topic: "RainSensor/DryMinutes"
+      unit_of_measurement: "min"
+      device_class: "duration"
 
     - name: "RainSensorIP"
       unique_id: "RainSensorIP"
@@ -142,10 +144,34 @@ mqtt:
       unique_id: "RainSensorMessage"
       state_topic: "RainSensor/Message"
 
+  button:
+    - name: "ResetRainSensor"
+      command_topic: "RainSensorCmd/Reset"
+
 recorder:
   exclude:
     entities:
       - sensor.rainsensoruptime
+
+sensor:
+  - platform: history_stats
+    name: "Rain count in Last 30 Minutes"
+    entity_id: sensor.rainsensor
+    state: "Yes"
+    type: "count"
+    duration:
+      minutes: 30
+    end: "{{ now() }}"  # Use 'end' as the current time
+
+template:
+  - sensor:
+      - name: "Rain in Last 30 Minutes"
+        state: >
+          {% if (now() - states('sensor.uptime')|as_datetime <= timedelta(minutes=2) and states('sensor.rainsensor') == 'Yes') or states('sensor.rain_count_in_last_30_minutes') | int(0) > 0 %}
+            Yes
+          {% else %}
+            No
+          {% endif %}    
 
 */
 
@@ -397,43 +423,50 @@ void reconnectMQTT()
 
 void callback(char* topic, byte* payload, unsigned int length)
 {
-  char buf[4096];
-  char str[2] = " ";
-  bool print = true;
-
-  printSerial("MQTT message arrived [");
-  printSerial(topic);
-  printSerial("] ");
-  memset(buf, 'x', sizeof(buf) - 1);
-  buf[min((unsigned int)sizeof(buf) - 1, length)] = 0;
-  for (int i = 0; i < length; i++)
+  if (strcmp(topic, MQTTcmd "/Reset") == 0)
   {
-    if (i < sizeof(buf) - 2)
-      buf[i] = (char)payload[i];
-    else
-    {
-      print = false;
-      if (i == sizeof(buf) - 2)
-      {
-        char c = buf[i];
-        buf[i] = 0;
-        printSerial(buf);
-        buf[i] = c;
-      }
-      str[0] = (char)payload[i];
-      printSerial(str);
-    }
+    DoReset();
   }
-  buf[min((unsigned int)sizeof(buf) - 1, length)] = 0;
-  if (print)
-  {  
-    printSerial(buf);
-  }
+  else
+  {
+    char buf[4096];
+    char str[2] = " ";
+    bool print = true;
 
-  printSerialln();
-  printSerial("length: ");
-  printSerialInt(length);
-  printSerialln();
+    printSerial("MQTT message arrived [");
+    printSerial(topic);
+    printSerial("] ");
+    memset(buf, 'x', sizeof(buf) - 1);
+    buf[min((unsigned int)sizeof(buf) - 1, length)] = 0;
+    for (int i = 0; i < length; i++)
+    {
+      if (i < sizeof(buf) - 2)
+        buf[i] = (char)payload[i];
+      else
+      {
+        print = false;
+        if (i == sizeof(buf) - 2)
+        {
+          char c = buf[i];
+          buf[i] = 0;
+          printSerial(buf);
+          buf[i] = c;
+        }
+        str[0] = (char)payload[i];
+        printSerial(str);
+      }
+    }
+    buf[min((unsigned int)sizeof(buf) - 1, length)] = 0;
+    if (print)
+    {  
+      printSerial(buf);
+    }
+
+    printSerialln();
+    printSerial("length: ");
+    printSerialInt(length);
+    printSerialln();
+  }
 }
 
 void SetupStatusLed()
@@ -1107,9 +1140,9 @@ void loop()
       {
         mqttClient.publish(MQTTid "/UpTime", buf, true);
 
-        static int rssi_avg = -1000;
-        rssi_avg = rssi_avg == -1000 ? WiFi.RSSI() : (rssi_avg * 9 + WiFi.RSSI()) / 10;
-        sprintf(buf, "%d", rssi_avg);
+        static double rssi_avg = -1000.0;
+        rssi_avg = rssi_avg == -1000.0 ? WiFi.RSSI() : (rssi_avg * 9.0 + (double)WiFi.RSSI()) / 10.0;
+        sprintf(buf, "%d", (int)(rssi_avg + 0.5));
         mqttClient.publish(MQTTid "/RSSI", buf, true);
       }
       else
