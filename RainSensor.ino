@@ -967,6 +967,14 @@ void setup()
   delay(100);
 
   printSerialln("Setup");
+# if defined ARDUINO_ARCH_ESP32  
+  {
+    char buf[255];
+
+    sprintf(buf, "Reset reason: %d", (int)esp_reset_reason());
+    printSerialln(buf);
+  }
+#endif
 
   setupRainSensor();
 
@@ -1091,7 +1099,8 @@ void statusRain()
   {
     char buf[15];
     sprintf(buf, "%d", dryMinutes);
-    mqttClient.publish(MQTTid "/DryMinutes", buf, true);
+    if (mqttClient.connected())
+      mqttClient.publish(MQTTid "/DryMinutes", buf, true);
     dryMinutes0 = dryMinutes;
   }
 }
