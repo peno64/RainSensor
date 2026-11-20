@@ -343,6 +343,11 @@ void DoReset()
 
 #endif
 
+bool connected()
+{
+  return WiFi.status() == WL_CONNECTED && mqttClient.connected();
+}
+
 void clearMessageWhenNeeded()
 {
   if (messageTime != 0 && (millis() - messageTime >= clearMessageTimeout))
@@ -354,7 +359,7 @@ void clearMessageWhenNeeded()
 
 void message(char *msg)
 {
-  if (mqttClient.connected())
+  if (connected())
     mqttClient.publish(MQTTid "/Message", msg, true);
   messageTime = millis();
   if (messageTime == 0)
@@ -363,62 +368,100 @@ void message(char *msg)
 
 void reconnectMQTT()
 {
-    static int count = 0;
-    static unsigned long msWait = 0;
+  static int count = 0;
+  static unsigned long msWait = 0;
+  static bool noWiFi = false;
 
-    // Loop until we're reconnected
-    if ((count == 0 || millis() - msWait > ReconnectWaitSeconds * 1000) &&
-        (!mqttClient.connected()))
+  // Loop until we're reconnected
+  if ((count == 0 || millis() - msWait > ReconnectWaitSeconds * 1000) && !connected())
+  {
+    if (WiFi.status() != WL_CONNECTED)
     {
-        printSerial("Attempting MQTT connection (");
-        printSerialInt(++count);
-        printSerial(") ...");
-        // Attempt to connect
-        if (mqttClient.connect(myName, MQTTUSER, MQTTPASSWORD, MQTTid "/Message", 1, true, "Offline"))
-        {
-          IPAddress ip;
+      noWiFi = true;
+      printSerial("No WiFi connection (");
+      printSerialInt(++count);
+      printSerial(").");
+
+      if (count >= ReconnectRebootMinutes * 60 / ReconnectWaitSeconds)
+      {
+        printSerialln(" Unable to connect, reset");
+        delay(500);
+        count = 0;
+        noWiFi = false;
+        DoReset();
+      }
+      else
+      {
+        printSerial(" Trying again in ");
+        printSerialInt(ReconnectWaitSeconds);
+        printSerialln(" seconds");
+        // Wait 5 seconds before retrying
+        msWait = millis();
+      }      
+    }
+    else
+    {
+      if (noWiFi)
+      {
+        noWiFi = false;
+        count = 0;
+        printSerialln("WiFi reconnected");
+      }
+      printSerial("Attempting MQTT connection (");
+      printSerialInt(++count);
+      printSerial(") ...");
+      // Attempt to connect
+      if (mqttClient.connect(myName, MQTTUSER, MQTTPASSWORD, MQTTid "/Message", 1, true, "Offline"))
+      {
+        IPAddress ip;
 #         if defined WIFI
-            ip = WiFi.localIP();
+          ip = WiFi.localIP();
 #         else
-            ip = Ethernet.localIP();
+          ip = Ethernet.localIP();
 #         endif
-          char sip[16];
-          sprintf(sip, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-          mqttClient.publish(MQTTid "/IP", sip, true);
-          if (reset)
-          {
-            reset = false;
-            message("Reset");
-            started = true;
-          }
-          else
-            message("Reconnected");
-          printSerialln("connected");
-          mqttClient.subscribe(MQTTcmd "/#");
-          count = 0;
+        char sip[16];
+        sprintf(sip, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+        mqttClient.publish(MQTTid "/IP", sip, true);
+        if (reset)
+        {
+          reset = false;
+          message("Reset");
+          started = true;
         }
         else
-        {
-            printSerial("failed, rc=");
-            printSerialInt(mqttClient.state());
-            if (count >= ReconnectRebootMinutes * 60 / ReconnectWaitSeconds)
-            {
-              printSerialln(" Unable to connect, reset");
-              delay(500);
-              count = 0;
-              DoReset();
-            }
-            else
-            {
-              printSerialln(" Try again in 5 seconds");
-              // Wait 5 seconds before retrying
-              msWait = millis();
-            }
-        }
+          message("Reconnected");
+        printSerialln(" Connected");
+        mqttClient.subscribe(MQTTcmd "/#");
+        count = 0;
+      }
+      else
+      {
+          printSerial("failed, rc=");
+          printSerialInt(mqttClient.state());
+          if (count >= ReconnectRebootMinutes * 60 / ReconnectWaitSeconds)
+          {
+            printSerialln(" Unable to connect, reset");
+            delay(500);
+            count = 0;
+            DoReset();
+          }
+          else
+          {
+            printSerial(" Try again in ");
+            printSerialInt(ReconnectWaitSeconds);
+            printSerialln(" seconds");
+            // Wait 5 seconds before retrying
+            msWait = millis();
+          }
+      }
     }
+  }
 
-    if (count != 0 && mqttClient.connected())
-      count = 0;
+  if (count != 0 && connected())
+  {
+    count = 0;
+    noWiFi = false;
+  }
 }
 
 void callback(char* topic, byte* payload, unsigned int length)
@@ -870,7 +913,7 @@ void wifiBegin()
   else
     WiFi.begin(WIFISSID, WIFIPASSWORD);
 
-  printSerial("Connecting WiFi");
+  printSerial("Connecting WiFi .");
   unsigned long t1 = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
@@ -882,8 +925,7 @@ void wifiBegin()
       printSerial(".");
   }
 
-  printSerialln();
-  printSerialln("WiFi connected");
+  printSerialln(" Connected");
 
 #if defined LOGGING && defined LOGDATETIME
   //configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
@@ -912,7 +954,7 @@ bool equalBSSIDs(uint8_t* BSSID1, uint8_t* BSSID2)
 
 void checkBSSID()
 {
-  if (!equalBSSIDs(BSSID, WiFi.BSSID()))
+  if (WiFi.status() == WL_CONNECTED && !equalBSSIDs(BSSID, WiFi.BSSID()))
   {
     printSerialln("BSSID changed, reconnecting WiFi");
     wifiBegin();
@@ -921,17 +963,20 @@ void checkBSSID()
 
 void checkRSSI()
 {
-  rssi = WiFi.RSSI();
-  if (rssi < RSSI_POOR_THRESHOLD_DBM)
+  if (WiFi.status() == WL_CONNECTED)
   {
-    int numNetworks = WiFi.scanNetworks(false, false, false, 300, 0, WIFISSID);
-    int i;
-    for (i = 0; i < numNetworks && (equalBSSIDs(BSSID, WiFi.BSSID(i)) || WiFi.RSSI(i) < rssi + RSSI_GOOD_HYSTERESIS_DB); i++)
-      ;
-    if (i < numNetworks)
+    rssi = WiFi.RSSI();
+    if (rssi < RSSI_POOR_THRESHOLD_DBM)
     {
-      printSerialln("Better RSSI found, reconnecting WiFi");
-      wifiBegin();
+      int numNetworks = WiFi.scanNetworks(false, false, false, 300, 0, WIFISSID);
+      int i;
+      for (i = 0; i < numNetworks && (equalBSSIDs(BSSID, WiFi.BSSID(i)) || WiFi.RSSI(i) < rssi + RSSI_GOOD_HYSTERESIS_DB); i++)
+        ;
+      if (i < numNetworks)
+      {
+        printSerialln("Better RSSI found, reconnecting WiFi");
+        wifiBegin();
+      }
     }
   }
 }
@@ -1071,7 +1116,7 @@ void statusRain()
 
     SetStatusLed(val != 0);
 
-    if (mqttClient.connected())
+    if (connected())
       mqttClient.publish(MQTTid "/Rain", val == 0 ? "No" : "Yes", true);
 
     if (val != 0)
@@ -1099,7 +1144,7 @@ void statusRain()
   {
     char buf[15];
     sprintf(buf, "%d", dryMinutes);
-    if (mqttClient.connected())
+    if (connected())
       mqttClient.publish(MQTTid "/DryMinutes", buf, true);
     dryMinutes0 = dryMinutes;
   }
@@ -1108,14 +1153,15 @@ void statusRain()
 void loop()
 {
     reconnectMQTT();
-    if (mqttClient.connected())
+    if (connected())
     {
       statusRain();
       mqttClient.loop();
     }
 
 #if defined OTA
-    server.handleClient();
+    if (WiFi.status() == WL_CONNECTED)
+      server.handleClient();
 #endif
 
     if (millis() - mytime > 1000) // every second
@@ -1155,7 +1201,7 @@ void loop()
       sprintf(buf, "%u:%02d:%02d:%02d", uptimeDays, (int)uptimeHours, (int)uptimeMinutes, (int)uptimeSeconds);
       //printSerial("Uptime: ");
       //printSerialln(buf);
-      if (mqttClient.connected())
+      if (connected())
       {
         mqttClient.publish(MQTTid "/UpTime", buf, true);
 
